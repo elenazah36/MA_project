@@ -22,6 +22,23 @@ int s = 0;  //duration of watering index
 int sm = 0; //time interval between waterings index
 
 
+
+
+/////////////////////////////  WI-FI SETUP  ////////////////////////////
+
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+
+const char* ssid     = "xxxxxxx";
+const char* password = "xxxxxxx";
+const char* host = "x.x.x.x"; // IPv4 adress
+const int   port = xxxx;     //port Domoticz
+const int   watchdog = 6000; // Frequency of sending data to Domoticz
+unsigned long previousMillis = millis(); 
+HTTPClient http;
+String url1, url2;
+
+
 ////////////////////////////  LED_PRINT_LEVEL  /////////////////////////////////////
 
 void LED_PRINT_LEVEL(int level) //turns on number of LED dividions according to "level"
@@ -101,6 +118,30 @@ int GET_LIGHT_LEVEL(){
   return 0;
 }
 
+//////////////////////// COMMUNICATION WITH SERVER ////////////////////////////
+
+void sendDomoticz(String url)      //updating data
+{
+  Serial.print("connecting to ");
+  Serial.println(host);
+  Serial.print("Requesting URL: ");
+  Serial.println(url);
+  http.begin(host,port,url);
+  int httpCode = http.GET();
+    if (httpCode)
+    { if(httpCode == 200)
+     {
+        String payload = http.getString();
+        Serial.println("Domoticz response "); 
+        Serial.println(payload);
+      
+    }
+    }
+  else Serial.println("Not connected to Domoticz");
+  Serial.println (httpCode);
+  Serial.println("closing connection");
+  http.end();
+}
 
 //////////////////////////////// SETUP /////////////////////////////////////////
 
@@ -120,6 +161,20 @@ void setup() {
    pinMode(sensorSELECT, OUTPUT);
 
    delay(2000);
+  
+  
+   Serial.println("Connecting Wifi...");
+
+   WiFi.begin(ssid, password);
+   while (WiFi.status() != WL_CONNECTED)   //connecting to wifi
+    {
+       delay(500);
+       Serial.print(".");                                     
+       Serial.println("");
+       Serial.println("WiFi connected");
+       Serial.println("IP address: ");
+      Serial.print(WiFi.localIP()); 
+    }
 }
 
 
@@ -156,6 +211,37 @@ void loop() {
        }
        else s++;
     }
+  
     READ_SENSORS();
+  
+  
+  unsigned long currentMillis = millis();   //this can be cut out, don't know for sure
+
+  if ( currentMillis - previousMillis > watchdog ) 
+  {
+    previousMillis = currentMillis;
+    if(WiFi.status() != WL_CONNECTED)
+      {  
+        Serial.println("WiFi not connected !");
+      } 
+    else 
+      { Serial.println("Send data to Domoticz");
+      
+    
+       url1 = "/json.htm?type=command&param=udevice&idx=IDX&nvalue=0&svalue=";  //request command
+       url1 += String(light); 
+       url1 += ";";
+       sendDomoticz(url1);
+   
+
+        url2 = "/json.htm?type=command&param=udevice&idx=IDX&nvalue=0&svalue="; 
+        url2 += String(moisture); 
+        url2 += ";";
+        sendDomoticz(url2);
+   
+       }
+    }
+  
+  
     delay(TIME_UNIT-2*SENSOR_READ_TIME);
 }                               
