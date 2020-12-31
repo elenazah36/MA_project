@@ -3,23 +3,27 @@ const int LED2 = D4;
 const int LED3 = D3;
 const int LED4 = D2;
 const int LED5 = D1;
-const int MOTOR = D0;   //switch for pump
-const int buttonHUM=D6; //button for soil moisture sensor display
-const int buttonLIGHT=D7;  //button for photoresistor display
-const int sensorSELECT=D8;  //sensor selector (0-photoresistor, 1-soil moisture)
-const int sense_Pin = A0; // sensor input at Analog pin A0
+const int MOTOR = D0;            //switch for pump
+const int buttonHUM=D6;          //button for soil moisture sensor display
+const int buttonLIGHT=D7;        //button for photoresistor display
+const int sensorSELECT=D8;       //sensor selector (0-photoresistor, 1-soil moisture)
+const int sense_Pin = A0;        //sensor input at Analog pin A0
 
+const int MEASUREMENT_INT=10000;  //time interval between two measurements
+const int WATER_INT=10000;       //time interval between two waterings
+const int WATER_DUR=5000;        //duration of watering
+int moisture_level=0;
+int light_level=0;
 
-const int S=5; // duration of watering
-const int SM=10; // time interval between waterings
-const int TIME_UNIT=2000; //time unit of one cicle (ms)
-const int SENSOR_READ_TIME=1000;
-
+int current_ms=0;
+int measurement_ms=0;
+int pump_on_ms=0;
+int pump_off_ms=0;
+char pump_state=0;
 
 int light=0, moisture=0;
 int buttonHUM_value = 0;
-int s = 0;  //duration of watering index
-int sm = 0; //time interval between waterings index
+int buttonLIGHT_value = 0;
 
 
 ////////////////////////////  LED_PRINT_LEVEL  /////////////////////////////////////
@@ -66,25 +70,51 @@ void LED_PRINT_LEVEL(int level) //turns on number of LED dividions according to 
 }
 
 
-////////////////////////////////  READ_SENSOR  ////////////////////////////////////  
+////////////////////////////////  READ_SENSOR  ////////////////////////////////////
 
-void READ_SENSORS()       // contains 2 x SENSOR_READ_TIME delay
+void READ_SENSORS()       // duration of MEASUREMENT_INT+1000ms
 {
-   digitalWrite(sensorSELECT, HIGH);
-   delay(SENSOR_READ_TIME);
-   Serial.print("MOISTURE VALUE: ");
-   moisture = analogRead(sense_Pin);
-   Serial.println(moisture);
+   if (current_ms - measurement_ms == MEASUREMENT_INT - 1000){        //powers moisture sensor 1 s before the measurement
+      digitalWrite(sensorSELECT, HIGH);                                
+      delay(1);
+   }
+   else if (current_ms - measurement_ms == MEASUREMENT_INT)            //moisture sensor measurement
+   {
+      Serial.print("MOISTURE VALUE: ");
+      moisture = analogRead(sense_Pin);
+      Serial.println(moisture);
+      digitalWrite(sensorSELECT, LOW);                                 //switch to photoresistor
+      delay(1);
+   }
+   else if (current_ms - measurement_ms == MEASUREMENT_INT + 1000){   //light sensor measurement
+      Serial.print("LIGHT VALUE: ");
+      light = analogRead(sense_Pin);
+      Serial.println(light);
+      measurement_ms=current_ms;                                      //update time of last measurement
+      delay(1);
+   }
    
-   digitalWrite(sensorSELECT, LOW);
-   delay(SENSOR_READ_TIME);
-   Serial.print("LIGHT VALUE: ");
-   light = analogRead(sense_Pin);
-   Serial.println(light);
 }
 
 
-////////////////////////// GET_MOISTURE_LEVEL ////////////////////////////////////
+
+///////////////////////////////////  WATER  ////////////////////////////////////////
+
+void WATER(){
+    if((current_ms - pump_off_ms > WATER_INT) && moisture_level==1 && pump_state==0){       //need watering
+      digitalWrite(MOTOR,HIGH);
+      pump_on_ms=current_ms;
+      pump_state=1;
+    }
+    if (current_ms - pump_on_ms > WATER_DUR and pump_state==1){
+      digitalWrite(MOTOR,LOW);
+      pump_off_ms=current_ms;
+      pump_state=0;
+    }
+}
+
+
+//////////////////////////// GET_MOISTURE_LEVEL ////////////////////////////////////
 
 int GET_MOISTURE_LEVEL(){
   if(moisture>800) return 1;
@@ -95,14 +125,18 @@ int GET_MOISTURE_LEVEL(){
 }
 
 
-////////////////////////// GET_LIGHT_LEVEL ////////////////////////////////////
+///////////////////////////// GET_LIGHT_LEVEL //////////////////////////////////////
 
 int GET_LIGHT_LEVEL(){
-  return 0;
+  if(light>700) return 5;
+  if(light>500) return 4;
+  if(light>300) return 3;
+  if(light>100) return 2;
+  return 1;
 }
 
 
-//////////////////////////////// SETUP /////////////////////////////////////////
+////////////////////////////////// SETUP ///////////////////////////////////////////
 
 void setup() {
    Serial.begin(115200);
@@ -120,9 +154,12 @@ void setup() {
    pinMode(sensorSELECT, OUTPUT);
 
    delay(2000);
+   
+   current_ms=millis();
+   //measurement_ms=current_ms;
+   //pump_on_ms=current_ms;
+   //pump_off_ms=current_ms;
 }
-
-
 
 ///////////////////////// MAIN  ////////////////////////////////////
 void loop() {
@@ -131,31 +168,20 @@ void loop() {
    digitalWrite(LED3, LOW);
    digitalWrite(LED4, LOW);
    digitalWrite(LED5, LOW);
-   digitalWrite(sensorSELECT, LOW);
+   
+   current_ms=millis();
+   
+   READ_SENSORS();
 
-   int moisture_level=GET_MOISTURE_LEVEL(moisture);
+   moisture_level=GET_MOISTURE_LEVEL();
+   light_level=GET_LIGHT_LEVEL();
    
    buttonHUM_value = digitalRead(buttonHUM);
-   if (buttonHUM_value==0) LED_PRINT_LEVEL(moisture_level);  // show moisture level on leds if button is pressed
+   buttonLIGHT_value = digitalRead(buttonLIGHT);
    
-   if(moisture_level==1){   //need watering
-      if (sm>SM){                 //turns on the pump if a certain time has passed since last watering
-        digitalWrite(MOTOR,HIGH);
-        s=1;
-        sm=0;                
-        }
-      else sm++;
-    }
-        
-    if (s>0) 
-    {
-       if(s>S){
-        digitalWrite(MOTOR,LOW);
-        s=0;
-        sm=0;
-       }
-       else s++;
-    }
-    READ_SENSORS();
-    delay(TIME_UNIT-2*SENSOR_READ_TIME);
+   if (buttonHUM_value==0) LED_PRINT_LEVEL(moisture_level);              // show moisture level on leds if button is pressed
+   if (buttonLIGHT_value==0) LED_PRINT_LEVEL(light_level);               // show light level on leds if button is pressed
+   
+   WATER();
+   
 }                               
