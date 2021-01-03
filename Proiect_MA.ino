@@ -15,11 +15,12 @@ const int WATER_DUR=5000;        //duration of watering
 int moisture_level=0;
 int light_level=0;
 
-int current_ms=0;
-int measurement_ms=0;
-int pump_on_ms=0;
-int pump_off_ms=0;
+unsigned long current_ms=0;
+unsigned long measurement_ms=0;
+unsigned long pump_on_ms=0;
+unsigned long pump_off_ms=0;
 char pump_state=0;
+
 
 int light=0, moisture=0;
 int buttonHUM_value = 0;
@@ -32,9 +33,9 @@ int buttonLIGHT_value = 0;
 
 const char* ssid     = "xxxxx";
 const char* password = "xxxxx";
-const char* host = "x.x.x.x"; // IPv4 adress
-const int   port = xxxx;     //port Domoticz
-const int   watchdog = 6000; // Frequency of sending data to Domoticz
+const char* host = "192.168.0.160"; // IPv4 adress
+const int   port = 8080;     //port Domoticz
+const int   watchdog = 30000; // Frequency of sending data to Domoticz
 unsigned long previous_ms = millis(); 
 HTTPClient http;
 String url1, url2;
@@ -83,6 +84,12 @@ void LED_PRINT_LEVEL(int level) //turns on number of LED dividions according to 
     
 }
 
+/////////////////////////// VOLT_TO_PERC //////////////////////////////////////////
+
+int VOLT_TO_PERC(float value){
+  return ((value/1024)*100);
+}
+
 
 ////////////////////////////////  READ_SENSOR  ////////////////////////////////////
 
@@ -97,6 +104,7 @@ void READ_SENSORS()       // duration of MEASUREMENT_INT+1000ms
       Serial.print("MOISTURE VALUE: ");
       moisture = analogRead(sense_Pin);
       Serial.println(moisture);
+      Serial.println(100-VOLT_TO_PERC(moisture));
       digitalWrite(sensorSELECT, LOW);                                 //switch to photoresistor
       delay(1);
    }
@@ -104,10 +112,14 @@ void READ_SENSORS()       // duration of MEASUREMENT_INT+1000ms
       Serial.print("LIGHT VALUE: ");
       light = analogRead(sense_Pin);
       Serial.println(light);
+      Serial.println(VOLT_TO_PERC(light));
       measurement_ms=current_ms;                                      //update time of last measurement
       delay(1);
    }
-   
+   else if (current_ms - measurement_ms > MEASUREMENT_INT + 1000){    //failsafe
+      measurement_ms=current_ms;
+      delay(1);
+   }
 }
 
 
@@ -154,24 +166,23 @@ int GET_LIGHT_LEVEL(){
 
 void sendDomoticz(String url)      //updating data
 {
-  Serial.print("connecting to ");
+  Serial.print("Connecting to ");
   Serial.println(host);
   Serial.print("Requesting URL: ");
   Serial.println(url);
   http.begin(host,port,url);
   int httpCode = http.GET();
-    if (httpCode)
-    { if(httpCode == 200)
+  if (httpCode){ 
+    if(httpCode == 200)
      {
         String payload = http.getString();
-        Serial.println("Domoticz response "); 
+        Serial.println("Domoticz response: "); 
         Serial.println(payload);
-      
-    }
-    }
+     }
+  }
   else Serial.println("Not connected to Domoticz");
   Serial.println (httpCode);
-  Serial.println("closing connection");
+  Serial.println("Closing connection");
   http.end();
 }
 
@@ -196,22 +207,18 @@ void setup() {
    delay(2000);
    
    current_ms=millis();
-   //measurement_ms=current_ms;
-   //pump_on_ms=current_ms;
-   //pump_off_ms=current_ms;
   
-  Serial.println("Connecting Wifi...");
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED)   //connecting to wifi
-    {
-       delay(500);
-       Serial.print(".");                                     
-       Serial.println("");
-       Serial.println("WiFi connected");
-       Serial.println("IP address: ");
-      Serial.print(WiFi.localIP()); 
-    }
-  
+   Serial.println("Connecting Wifi...");
+   WiFi.begin(ssid, password);
+   while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+   }
+   
+   Serial.println("");
+   Serial.println("WiFi connected");
+   Serial.println("IP address: ");
+   Serial.print(WiFi.localIP());  
   
 }
 
@@ -227,29 +234,26 @@ void loop() {
    
    READ_SENSORS();
   
-  if ( current_ms - previous_ms > watchdog )   //hope this doesn't interfere with the rest of the code, otherwise I'll take seperate variables
-  {
+   if ( current_ms - previous_ms > watchdog )
+   {
     previous_ms = current_ms;
     if(WiFi.status() != WL_CONNECTED)
       {  
           Serial.println("WiFi not connected !");
       } 
     else 
-      { 
-      
-         Serial.println("Send data to Domoticz");
+      {
+         Serial.println("Sending data to Domoticz");
 
          url1 = "/json.htm?type=command&param=udevice&idx=1&nvalue=0&svalue=";  //request command
-         url1 += String(light); 
+         url1 += String(VOLT_TO_PERC(light)); 
          url1 += ";";
          sendDomoticz(url1);
 
-
-          url2 = "/json.htm?type=command&param=udevice&idx=3&nvalue=0&svalue="; 
-          url2 += String(moisture); 
-          url2 += ";";
-          sendDomoticz(url2);
-
+         url2 = "/json.htm?type=command&param=udevice&idx=2&nvalue=0&svalue="; 
+         url2 += String((100-VOLT_TO_PERC(moisture))); 
+         url2 += ";";
+         sendDomoticz(url2);
        }
     }
 
@@ -264,4 +268,4 @@ void loop() {
    
    WATER();
    
-}                               
+}
